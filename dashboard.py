@@ -6,7 +6,6 @@ import os
 import io
 from collections import Counter
 import re
-import itertools
 
 st.set_page_config(layout="wide")
 st.title("📰 Topic Summary Dashboard (ZIP Berisi CSV)")
@@ -30,10 +29,7 @@ def extract_csv_from_zip(zip_file):
 
 if 'show_wordcloud' not in st.session_state:
     st.session_state['show_wordcloud'] = True
-if 'popup_open' not in st.session_state:
-    st.session_state['popup_open'] = None
 
-# Input ZIP
 st.markdown("### 📁 Pilih sumber data ZIP")
 input_type = st.radio("Input ZIP via:", ["Upload File", "Link Download"])
 
@@ -156,9 +152,7 @@ if st.session_state['last_df'] is not None:
     ).reset_index().sort_values(by='Article', ascending=False)
 
     st.markdown("### 📊 Ringkasan Topik")
-    for i, row in grouped.iterrows():
-        title_html = highlight_text(row['title'])
-        st.markdown(f'<div style="cursor:pointer;" onclick="window.location.href=' + "'#popup{i}'" + '">{title_html}</div>', unsafe_allow_html=True)
+    st.dataframe(grouped[['title', 'Article', 'Sentiment', 'Tier', 'Link']], use_container_width=True)
 
     if st.session_state['show_wordcloud']:
         st.markdown("### ☁️ Word Cloud (Top 500 Kata)")
