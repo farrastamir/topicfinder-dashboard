@@ -6,6 +6,7 @@ import os
 import io
 from collections import Counter
 import re
+import itertools
 
 st.set_page_config(layout="wide")
 st.title("📰 Topic Summary Dashboard (ZIP Berisi CSV)")
@@ -26,6 +27,48 @@ def extract_csv_from_zip(zip_file):
                 except Exception as e:
                     st.warning(f"Gagal membaca {f}: {e}")
         return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
+
+def parse_advanced_keywords(query):
+    query = query.strip()
+    if not query:
+        return [], [], []
+
+    include_groups = []
+    exclude_words = []
+    exact_phrases = []
+
+    token_pattern = r'"[^"]+"|\([^)]+\)|\S+'
+    tokens = re.findall(token_pattern, query)
+
+    for tok in tokens:
+        if tok.startswith('"') and tok.endswith('"'):
+            exact_phrases.append(tok.strip('"'))
+        elif tok.startswith('-'):
+            inner = tok[1:].strip()
+            if inner.startswith('("'):
+                inner = inner.strip('()"')
+                exclude_words.extend(inner.split())
+            else:
+                exclude_words.append(inner.strip('()'))
+        elif tok.startswith('(') and tok.endswith(')'):
+            or_group = [w.strip() for w in tok.strip('()').split('OR') if w.strip()]
+            include_groups.append(or_group)
+        else:
+            include_groups.append([tok.strip()])
+
+    return include_groups, exact_phrases, exclude_words
+
+def match_advanced(text, includes, phrases, excludes):
+    text = text.lower()
+    if any(word in text for word in excludes):
+        return False
+    for phrase in phrases:
+        if phrase.lower() not in text:
+            return False
+    for group in includes:
+        if not any(word.lower() in text for word in group):
+            return False
+    return True
 
 # Input: Upload atau URL
 st.markdown("### 📁 Pilih sumber data ZIP")
@@ -74,48 +117,16 @@ if st.session_state['last_df'] is not None:
 
     filtered_df = df.copy()
 
-    # Filter sentimen
     if sentiment_filter != 'All':
         filtered_df = filtered_df[filtered_df['sentiment'].str.lower() == sentiment_filter]
 
-    # Filter label
     if label_filter != 'All':
         filtered_df = filtered_df[filtered_df['label'].apply(lambda x: label_filter in [s.strip() for s in x.split(',')])]
 
-    # Filter kata kunci
-    def match_keywords(text):
-        text = text.lower()
-        include_words = []
-        exclude_words = []
-        phrases = []
-        tokens = keyword_input.split(' ')
-        i = 0
-        while i < len(tokens):
-            token = tokens[i]
-            if token.startswith('"'):
-                phrase = token
-                while not phrase.endswith('"') and i+1 < len(tokens):
-                    i += 1
-                    phrase += ' ' + tokens[i]
-                phrases.append(phrase.strip('"'))
-            elif token.startswith('-'):
-                exclude_words.append(token[1:])
-            else:
-                include_words.append(token)
-            i += 1
-        for word in exclude_words:
-            if word in text:
-                return False
-        for word in include_words:
-            if word and word not in text:
-                return False
-        for phrase in phrases:
-            if phrase and phrase not in text:
-                return False
-        return True
-
     if keyword_input:
-        mask = filtered_df['title'].apply(match_keywords) | filtered_df['body'].apply(match_keywords)
+        includes, phrases, excludes = parse_advanced_keywords(keyword_input)
+        mask = filtered_df['title'].apply(lambda x: match_advanced(x, includes, phrases, excludes)) | \
+               filtered_df['body'].apply(lambda x: match_advanced(x, includes, phrases, excludes))
         filtered_df = filtered_df[mask]
 
     grouped = filtered_df.groupby('title').agg(
@@ -159,12 +170,12 @@ if st.session_state['last_df'] is not None:
         st.write(grouped.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     with col2:
-        st.markdown("### ☁️ Word Cloud (CSV)")
+        st.markdown("### ☁️ Word Cloud (Top 500 Kata)")
         all_text = ' '.join(filtered_df['title'].tolist() + filtered_df['body'].tolist())
         tokens = re.findall(r'\b\w{3,}\b', all_text.lower())
         common_stopwords = set(pd.read_csv("https://raw.githubusercontent.com/stopwords-iso/stopwords-id/master/stopwords-id.txt", header=None)[0].tolist())
         tokens = [word for word in tokens if word not in common_stopwords]
-        word_freq = Counter(tokens).most_common(100)
+        word_freq = Counter(tokens).most_common(500)
         wc_df = pd.DataFrame(word_freq, columns=['Kata', 'Jumlah'])
         st.dataframe(wc_df)
 
