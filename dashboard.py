@@ -158,14 +158,7 @@ if st.session_state['last_df'] is not None:
     st.markdown("### 📊 Ringkasan Topik")
     for i, row in grouped.iterrows():
         title_html = highlight_text(row['title'])
-        if st.button(f"📎 {row['title']}", key=f"pop{i}"):
-            st.session_state['popup_open'] = i
-
-        if st.session_state['popup_open'] == i:
-            with st.expander(f"📝 {row['title']} (Klik untuk tutup)"):
-                st.markdown(f"<b>Sentimen:</b> {row['Sentiment']}<br>" +
-                            f"<b>Tier:</b> {row['Tier']}<br><br>" +
-                            f"<b>Isi Berita:</b><br> {highlight_text(row['Body'])}", unsafe_allow_html=True)
+        st.markdown(f'<div style="cursor:pointer;" onclick="window.location.href=' + "'#popup{i}'" + '">{title_html}</div>', unsafe_allow_html=True)
 
     if st.session_state['show_wordcloud']:
         st.markdown("### ☁️ Word Cloud (Top 500 Kata)")
