@@ -28,59 +28,12 @@ def extract_csv_from_zip(zip_file):
                     st.warning(f"Gagal membaca {f}: {e}")
         return pd.concat(dfs, ignore_index=True) if dfs else pd.DataFrame()
 
-def parse_advanced_keywords(query):
-    query = query.strip()
-    if not query:
-        return [], [], []
+if 'show_wordcloud' not in st.session_state:
+    st.session_state['show_wordcloud'] = True
+if 'popup_open' not in st.session_state:
+    st.session_state['popup_open'] = None
 
-    include_groups = []
-    exclude_words = []
-    exact_phrases = []
-
-    if ' OR ' in query:
-        parts = query.split(' OR ')
-        or_combinations = []
-        for part in parts:
-            groups, phrases, excludes = parse_advanced_keywords(part)
-            or_combinations.append((groups, phrases, excludes))
-        return 'OR_COMBO', or_combinations, []
-
-    token_pattern = r'"[^"]+"|\([^)]+\)|\S+'
-    tokens = re.findall(token_pattern, query)
-
-    for tok in tokens:
-        if tok.startswith('"') and tok.endswith('"'):
-            exact_phrases.append(tok.strip('"'))
-        elif tok.startswith('-'):
-            inner = tok[1:].strip()
-            exclude_words.extend(inner.strip('()').split())
-        elif tok.startswith('(') and tok.endswith(')'):
-            or_group = [w.strip() for w in tok.strip('()').split('OR') if w.strip()]
-            include_groups.append(or_group)
-        else:
-            include_groups.append([tok.strip()])
-
-    return include_groups, exact_phrases, exclude_words
-
-def match_advanced(text, includes, phrases, excludes):
-    text = text.lower()
-    if includes == 'OR_COMBO':
-        for group_set, phrase_set, exclude_set in phrases:
-            if match_advanced(text, group_set, phrase_set, exclude_set):
-                return True
-        return False
-
-    if any(word in text for word in excludes):
-        return False
-    for phrase in phrases:
-        if phrase.lower() not in text:
-            return False
-    for group in includes:
-        if not any(word.lower() in text for word in group):
-            return False
-    return True
-
-# Input: Upload atau URL
+# Input ZIP
 st.markdown("### 📁 Pilih sumber data ZIP")
 input_type = st.radio("Input ZIP via:", ["Upload File", "Link Download"])
 
@@ -100,7 +53,6 @@ else:
             except Exception as e:
                 st.error(f"❌ Gagal mengunduh: {e}")
 
-# STATE KONTROL
 if 'last_df' not in st.session_state:
     st.session_state['last_df'] = None
 
@@ -121,20 +73,52 @@ if st.session_state['last_df'] is not None:
     all_labels = sorted(set([label.strip() for sub in df['label'] for label in sub.split(',') if label.strip()]))
     sentiments_all = sorted(df['sentiment'].str.lower().unique())
 
-    col_stat, col_filter, col_word = st.columns([1, 1.3, 1.7])
-
-    with col_filter:
-        st.markdown("#### 🔍 Filter")
+    with st.sidebar:
+        st.markdown("### 🔍 Filter")
         sentiment_filter = st.selectbox("Sentimen", options=["All"] + sentiments_all)
         keyword_input = st.text_input("Kata kunci (\"frasa\" -exclude)")
         label_filter = st.selectbox("Label", options=["All"] + all_labels)
         dynamic_wordcloud = st.checkbox("Word Cloud Dinamis", value=True)
+        highlight_words = st.text_input("Highlight Kata")
 
     filtered_df = df.copy()
     if sentiment_filter != 'All':
         filtered_df = filtered_df[filtered_df['sentiment'].str.lower() == sentiment_filter]
     if label_filter != 'All':
         filtered_df = filtered_df[filtered_df['label'].apply(lambda x: label_filter in [s.strip() for s in x.split(',')])]
+
+    def parse_advanced_keywords(query):
+        query = query.strip()
+        if not query:
+            return [], [], []
+        include_groups, exclude_words, exact_phrases = [], [], []
+        token_pattern = r'\"[^\"]+\"|\([^\)]+\)|\S+'
+        tokens = re.findall(token_pattern, query)
+        for tok in tokens:
+            if tok.startswith('"') and tok.endswith('"'):
+                exact_phrases.append(tok.strip('"'))
+            elif tok.startswith('-'):
+                inner = tok[1:].strip()
+                exclude_words.extend(inner.strip('()').split())
+            elif tok.startswith('(') and tok.endswith(')'):
+                or_group = [w.strip() for w in tok.strip('()').split('OR') if w.strip()]
+                include_groups.append(or_group)
+            else:
+                include_groups.append([tok.strip()])
+        return include_groups, exact_phrases, exclude_words
+
+    def match_advanced(text, includes, phrases, excludes):
+        text = text.lower()
+        if any(word in text for word in excludes):
+            return False
+        for phrase in phrases:
+            if phrase.lower() not in text:
+                return False
+        for group in includes:
+            if not any(word.lower() in text for word in group):
+                return False
+        return True
+
     if keyword_input:
         includes, phrases, excludes = parse_advanced_keywords(keyword_input)
         mask = filtered_df['title'].apply(lambda x: match_advanced(x, includes, phrases, excludes)) | \
@@ -147,48 +131,43 @@ if st.session_state['last_df'] is not None:
     total_negatif = sum(sentiments == 'negative')
     total_netral = sum(sentiments == 'neutral')
 
-    with col_stat:
-        st.markdown("""
-        ### 🧾 **Total Artikel:**
-        <span style='font-size:26px; font-weight:bold;'>{}</span><br>
-        <span style='color:green;'>🟢 {} Positif</span> &nbsp;&nbsp;
-        <span style='color:gray;'>⚪ {} Netral</span> &nbsp;&nbsp;
-        <span style='color:red;'>🔴 {} Negatif</span>
-        """.format(total_artikel, total_positif, total_netral, total_negatif), unsafe_allow_html=True)
+    st.sidebar.markdown(f"""
+    <hr>
+    <h4>📊 <b>Total Artikel</b>: {total_artikel}</h4>
+    <p><span style='color:green;'>🟢 {total_positif}</span> &nbsp;&nbsp;
+    <span style='color:gray;'>⚪ {total_netral}</span> &nbsp;&nbsp;
+    <span style='color:red;'>🔴 {total_negatif}</span></p>
+    """, unsafe_allow_html=True)
+
+    highlight_tokens = re.findall(r'\"[^\"]+\"|\S+', highlight_words)
+    highlight_words_set = set([h.strip('"').lower() for h in highlight_tokens])
+
+    def highlight_text(text):
+        words = text.split()
+        highlighted = [f"<mark>{w}</mark>" if any(hw in w.lower() for hw in highlight_words_set) else w for w in words]
+        return ' '.join(highlighted)
 
     grouped = filtered_df.groupby('title').agg(
         Article=('title', 'count'),
         Sentiment=('sentiment', lambda x: x.mode().iloc[0] if not x.mode().empty else '-'),
-        Link=('url', lambda x: x[df.loc[x.index].sort_values(by='tier').index[0]] if not x.dropna().empty else '-')
+        Tier=('tier', lambda x: x.mode().iloc[0] if not x.mode().empty else '-'),
+        Body=('body', lambda x: x.dropna().iloc[0] if not x.dropna().empty else '-'),
+        Link=('url', lambda x: x.dropna().iloc[0] if not x.dropna().empty else '-')
     ).reset_index().sort_values(by='Article', ascending=False)
 
-    def color_sentiment(s):
-        if s.lower() == 'positive': return f'<span style="color:green;font-weight:bold">{s}</span>'
-        if s.lower() == 'negative': return f'<span style="color:red;font-weight:bold">{s}</span>'
-        return f'<span style="color:gray;font-weight:bold">{s}</span>'
-
-    grouped['Sentiment'] = grouped['Sentiment'].apply(color_sentiment)
-    grouped['Link'] = grouped['Link'].apply(lambda x: f'<a href="{x}" target="_blank">Lihat</a>' if x != '-' else '-')
-    grouped['title'] = grouped['title'].apply(lambda x: f'<div title="{x}" style="max-width:400px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{x}</div>')
-
     st.markdown("### 📊 Ringkasan Topik")
-    st.write("(Klik judul/link untuk melihat detail)")
-    st.markdown("""
-    <style>
-    td div {
-        max-width: 500px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+    for i, row in grouped.iterrows():
+        title_html = highlight_text(row['title'])
+        if st.button(f"📎 {row['title']}", key=f"pop{i}"):
+            st.session_state['popup_open'] = i
 
-    col1, col2 = st.columns([3, 1], gap="large")
-    with col1:
-        st.write(grouped.to_html(escape=False, index=False), unsafe_allow_html=True)
+        if st.session_state['popup_open'] == i:
+            with st.expander(f"📝 {row['title']} (Klik untuk tutup)"):
+                st.markdown(f"<b>Sentimen:</b> {row['Sentiment']}<br>" +
+                            f"<b>Tier:</b> {row['Tier']}<br><br>" +
+                            f"<b>Isi Berita:</b><br> {highlight_text(row['Body'])}", unsafe_allow_html=True)
 
-    with col2:
+    if st.session_state['show_wordcloud']:
         st.markdown("### ☁️ Word Cloud (Top 500 Kata)")
         base_df = filtered_df if dynamic_wordcloud else df
         all_text = ' '.join(base_df['title'].tolist() + base_df['body'].tolist())
