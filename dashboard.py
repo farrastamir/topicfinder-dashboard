@@ -8,7 +8,7 @@ from collections import Counter
 import re
 
 st.set_page_config(layout="wide")
-st.title("📰 Topic Summary Dashboard (ZIP Berisi CSV)")
+st.title("📰 Topic Summary NoLimit Dashboard")
 
 @st.cache_data(show_spinner=False)
 def extract_csv_from_zip(zip_file):
@@ -32,7 +32,7 @@ if 'show_wordcloud' not in st.session_state:
 if 'dynamic_wordcloud' not in st.session_state:
     st.session_state['dynamic_wordcloud'] = True
 
-st.markdown("### 📁 Pilih sumber data ZIP")
+st.markdown("### 📁 Pilih sumber data")
 input_type = st.radio("Input ZIP via:", ["Upload File", "Link Download"])
 
 zip_data = None
@@ -71,29 +71,35 @@ if st.session_state['last_df'] is not None:
     all_labels = sorted(set([label.strip() for sub in df['label'] for label in sub.split(',') if label.strip()]))
     sentiments_all = sorted(df['sentiment'].str.lower().unique())
 
-    # Sidebar (statistik + filter)
-    with st.sidebar:
-        st.markdown("### 📊 Statistik")
-        sentiments = df['sentiment'].str.lower()
-        st.markdown(f"**📰 Total Artikel:** {df.shape[0]}")
-        st.markdown(f"<span style='color:green;'>🟢 Positif:</span> {sum(sentiments == 'positive')}", unsafe_allow_html=True)
-        st.markdown(f"<span style='color:gray;'>⚪ Netral:</span> {sum(sentiments == 'neutral')}", unsafe_allow_html=True)
-        st.markdown(f"<span style='color:red;'>🔴 Negatif:</span> {sum(sentiments == 'negative')}", unsafe_allow_html=True)
-        st.markdown("---")
-        st.markdown("### 🔍 Filter")
-        sentiment_filter = st.selectbox("Sentimen", options=["All"] + sentiments_all)
-        keyword_input = st.text_input("Kata kunci (\"frasa\" -exclude)")
-        label_filter = st.selectbox("Label", options=["All"] + all_labels)
-        st.session_state['show_wordcloud'] = st.checkbox("Tampilkan Word Cloud", value=st.session_state['show_wordcloud'])
-        if st.session_state['show_wordcloud']:
-            st.session_state['dynamic_wordcloud'] = st.checkbox("Word Cloud Dinamis", value=st.session_state['dynamic_wordcloud'])
-        highlight_words = st.text_input("Highlight Kata")
-
     filtered_df = df.copy()
+    sentiment_filter = st.sidebar.selectbox("Sentimen", options=["All"] + sentiments_all)
     if sentiment_filter != 'All':
         filtered_df = filtered_df[filtered_df['sentiment'].str.lower() == sentiment_filter]
+
+    keyword_input = st.sidebar.text_input("Kata kunci (\"frasa\" -exclude)")
+    label_filter = st.sidebar.selectbox("Label", options=["All"] + all_labels)
     if label_filter != 'All':
         filtered_df = filtered_df[filtered_df['label'].apply(lambda x: label_filter in [s.strip() for s in x.split(',')])]
+
+    st.session_state['show_wordcloud'] = True
+    st.session_state['dynamic_wordcloud'] = st.sidebar.checkbox("Word Cloud Dinamis", value=True)
+    highlight_words = st.sidebar.text_input("Highlight Kata")
+
+    sentiments = filtered_df['sentiment'].str.lower()
+    total_artikel = filtered_df.shape[0]
+    total_positif = (sentiments == 'positive').sum()
+    total_negatif = (sentiments == 'negative').sum()
+    total_netral = (sentiments == 'neutral').sum()
+
+    st.sidebar.markdown("---")
+    st.sidebar.markdown(f"""
+    <div style='font-size:18px; font-weight:bold;'>📰 Total Artikel: {total_artikel}</div>
+    <div style='margin-top:4px;'>
+        <span style='color:green;'>🟢 {total_positif}</span> |
+        <span style='color:gray;'>⚪ {total_netral}</span> |
+        <span style='color:red;'>🔴 {total_negatif}</span>
+    </div>
+    """, unsafe_allow_html=True)
 
     def parse_advanced_keywords(query):
         query = query.strip()
@@ -137,11 +143,10 @@ if st.session_state['last_df'] is not None:
     highlight_words_set = set([h.strip('"').lower() for h in highlight_tokens])
 
     def highlight_text(text):
-        words = text.split()
-        highlighted = [f"<mark>{w}</mark>" if any(hw in w.lower() for hw in highlight_words_set) else w for w in words]
-        return ' '.join(highlighted)
+        for word in highlight_words_set:
+            text = re.sub(f"(?i)({re.escape(word)})", r'<mark>\1</mark>', text)
+        return text
 
-    # Custom function to get URL based on tier preference
     def get_best_link(sub_df):
         for tier in ['Tier 1', 'Tier 2', 'Tier 3', '-', '']:
             result = sub_df[sub_df['tier'] == tier]['url']
@@ -162,32 +167,28 @@ if st.session_state['last_df'] is not None:
         if s == 'neutral': return f'<span style="color:gray;font-weight:bold">{s}</span>'
         return sent
 
+    grouped['title'] = grouped['title'].apply(highlight_text)
     grouped['Sentiment'] = grouped['Sentiment'].apply(sentiment_color)
     grouped['Link'] = grouped['Link'].apply(lambda x: f'<a href="{x}" target="_blank">Link</a>' if x != '-' else '-')
 
-    st.markdown("### 📊 Ringkasan Topik")
-    st.markdown("<div style='overflow-x:auto;'>", unsafe_allow_html=True)
-    st.write(grouped[['title', 'Article', 'Sentiment', 'Link']].to_html(escape=False, index=False), unsafe_allow_html=True)
-    st.markdown("</div>", unsafe_allow_html=True)
-
-    if st.session_state['show_wordcloud']:
-        st.markdown("""
-        <style>
-        .wordcloud-container { position: fixed; top: 60px; right: 0; width: 30%; height: 100%; overflow-y: scroll; background-color: #111; padding: 1rem; color: white; }
-        </style>
-        <div class="wordcloud-container">
-        <h4>☁️ Word Cloud (Top 500)</h4>
-        """, unsafe_allow_html=True)
-
-        base_df = filtered_df if st.session_state['dynamic_wordcloud'] else df
-        all_text = ' '.join(base_df['title'].tolist() + base_df['body'].tolist())
-        tokens = re.findall(r'\b\w{3,}\b', all_text.lower())
-        stop_url = "https://raw.githubusercontent.com/stopwords-iso/stopwords-id/master/stopwords-id.txt"
-        common_stopwords = set(pd.read_csv(stop_url, header=None)[0].tolist())
-        tokens = [word for word in tokens if word not in common_stopwords]
-        word_freq = Counter(tokens).most_common(500)
-        wc_df = pd.DataFrame(word_freq, columns=['Kata', 'Jumlah'])
-        st.markdown(wc_df.to_html(index=False), unsafe_allow_html=True)
+    col1, col2 = st.columns([0.7, 0.3])
+    with col1:
+        st.markdown("### 📊 Ringkasan Topik")
+        st.markdown("<div style='overflow-x:auto;'>", unsafe_allow_html=True)
+        st.write(grouped[['title', 'Article', 'Sentiment', 'Link']].to_html(escape=False, index=False), unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
+
+    with col2:
+        if st.session_state['show_wordcloud']:
+            st.markdown("### ☁️ Word Cloud (Top 500)")
+            base_df = filtered_df if st.session_state['dynamic_wordcloud'] else df
+            all_text = ' '.join(base_df['title'].tolist() + base_df['body'].tolist())
+            tokens = re.findall(r'\b\w{3,}\b', all_text.lower())
+            stop_url = "https://raw.githubusercontent.com/stopwords-iso/stopwords-id/master/stopwords-id.txt"
+            common_stopwords = set(pd.read_csv(stop_url, header=None)[0].tolist())
+            tokens = [word for word in tokens if word not in common_stopwords]
+            word_freq = Counter(tokens).most_common(500)
+            wc_df = pd.DataFrame(word_freq, columns=['Kata', 'Jumlah'])
+            st.dataframe(wc_df, use_container_width=True)
 else:
     st.info("Silakan upload atau unduh ZIP untuk melihat ringkasan topik.")
