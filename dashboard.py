@@ -37,6 +37,14 @@ def parse_advanced_keywords(query):
     exclude_words = []
     exact_phrases = []
 
+    if ' OR ' in query:
+        parts = query.split(' OR ')
+        or_combinations = []
+        for part in parts:
+            groups, phrases, excludes = parse_advanced_keywords(part)
+            or_combinations.append((groups, phrases, excludes))
+        return 'OR_COMBO', or_combinations, []
+
     token_pattern = r'"[^"]+"|\([^)]+\)|\S+'
     tokens = re.findall(token_pattern, query)
 
@@ -45,11 +53,7 @@ def parse_advanced_keywords(query):
             exact_phrases.append(tok.strip('"'))
         elif tok.startswith('-'):
             inner = tok[1:].strip()
-            if inner.startswith('("'):
-                inner = inner.strip('()"')
-                exclude_words.extend(inner.split())
-            else:
-                exclude_words.append(inner.strip('()'))
+            exclude_words.extend(inner.strip('()').split())
         elif tok.startswith('(') and tok.endswith(')'):
             or_group = [w.strip() for w in tok.strip('()').split('OR') if w.strip()]
             include_groups.append(or_group)
@@ -60,6 +64,12 @@ def parse_advanced_keywords(query):
 
 def match_advanced(text, includes, phrases, excludes):
     text = text.lower()
+    if includes == 'OR_COMBO':
+        for group_set, phrase_set, exclude_set in phrases:
+            if match_advanced(text, group_set, phrase_set, exclude_set):
+                return True
+        return False
+
     if any(word in text for word in excludes):
         return False
     for phrase in phrases:
@@ -106,42 +116,51 @@ if st.session_state['last_df'] is not None:
         df[col] = df[col].astype(str).str.strip("'")
 
     df['label'] = df['label'].fillna('')
+    df['tier'] = df['tier'].fillna('-')
+    df['tier'] = pd.Categorical(df['tier'], categories=['Tier 1', 'Tier 2', 'Tier 3', '-', ''], ordered=True)
     all_labels = sorted(set([label.strip() for sub in df['label'] for label in sub.split(',') if label.strip()]))
     sentiments_all = sorted(df['sentiment'].str.lower().unique())
 
-    # Filter
-    st.sidebar.header("🔍 Filter")
-    sentiment_filter = st.sidebar.selectbox("Sentimen", options=["All"] + sentiments_all)
-    keyword_input = st.sidebar.text_input("Kata kunci (\"frasa\" -exclude)")
-    label_filter = st.sidebar.selectbox("Label", options=["All"] + all_labels)
+    col_stat, col_filter, col_word = st.columns([1, 1.3, 1.7])
+
+    with col_filter:
+        st.markdown("#### 🔍 Filter")
+        sentiment_filter = st.selectbox("Sentimen", options=["All"] + sentiments_all)
+        keyword_input = st.text_input("Kata kunci (\"frasa\" -exclude)")
+        label_filter = st.selectbox("Label", options=["All"] + all_labels)
+        dynamic_wordcloud = st.checkbox("Word Cloud Dinamis", value=True)
 
     filtered_df = df.copy()
-
     if sentiment_filter != 'All':
         filtered_df = filtered_df[filtered_df['sentiment'].str.lower() == sentiment_filter]
-
     if label_filter != 'All':
         filtered_df = filtered_df[filtered_df['label'].apply(lambda x: label_filter in [s.strip() for s in x.split(',')])]
-
     if keyword_input:
         includes, phrases, excludes = parse_advanced_keywords(keyword_input)
         mask = filtered_df['title'].apply(lambda x: match_advanced(x, includes, phrases, excludes)) | \
                filtered_df['body'].apply(lambda x: match_advanced(x, includes, phrases, excludes))
         filtered_df = filtered_df[mask]
 
+    sentiments = filtered_df['sentiment'].str.lower()
+    total_artikel = filtered_df.shape[0]
+    total_positif = sum(sentiments == 'positive')
+    total_negatif = sum(sentiments == 'negative')
+    total_netral = sum(sentiments == 'neutral')
+
+    with col_stat:
+        st.markdown("""
+        ### 🧾 **Total Artikel:**
+        <span style='font-size:26px; font-weight:bold;'>{}</span><br>
+        <span style='color:green;'>🟢 {} Positif</span> &nbsp;&nbsp;
+        <span style='color:gray;'>⚪ {} Netral</span> &nbsp;&nbsp;
+        <span style='color:red;'>🔴 {} Negatif</span>
+        """.format(total_artikel, total_positif, total_netral, total_negatif), unsafe_allow_html=True)
+
     grouped = filtered_df.groupby('title').agg(
         Article=('title', 'count'),
         Sentiment=('sentiment', lambda x: x.mode().iloc[0] if not x.mode().empty else '-'),
-        Link=('url', lambda x: x.dropna().iloc[0] if not x.dropna().empty else '-')
+        Link=('url', lambda x: x[df.loc[x.index].sort_values(by='tier').index[0]] if not x.dropna().empty else '-')
     ).reset_index().sort_values(by='Article', ascending=False)
-
-    sentiments = filtered_df['sentiment'].str.lower()
-    st.markdown(f"""
-    **Total Artikel:** {filtered_df.shape[0]} | 
-    **Positif:** {sum(sentiments == 'positive')} | 
-    **Negatif:** {sum(sentiments == 'negative')} | 
-    **Netral:** {sum(sentiments == 'neutral')}
-    """)
 
     def color_sentiment(s):
         if s.lower() == 'positive': return f'<span style="color:green;font-weight:bold">{s}</span>'
@@ -152,32 +171,32 @@ if st.session_state['last_df'] is not None:
     grouped['Link'] = grouped['Link'].apply(lambda x: f'<a href="{x}" target="_blank">Lihat</a>' if x != '-' else '-')
     grouped['title'] = grouped['title'].apply(lambda x: f'<div title="{x}" style="max-width:400px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{x}</div>')
 
-    col1, col2 = st.columns([3, 1])
+    st.markdown("### 📊 Ringkasan Topik")
+    st.write("(Klik judul/link untuk melihat detail)")
+    st.markdown("""
+    <style>
+    td div {
+        max-width: 500px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
+    col1, col2 = st.columns([3, 1], gap="large")
     with col1:
-        st.markdown("### 📊 Ringkasan Topik")
-        st.write("(Klik judul/link untuk melihat detail)")
-        st.markdown("""
-        <style>
-        td div {
-            max-width: 500px;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-        </style>
-        """, unsafe_allow_html=True)
         st.write(grouped.to_html(escape=False, index=False), unsafe_allow_html=True)
 
     with col2:
         st.markdown("### ☁️ Word Cloud (Top 500 Kata)")
-        all_text = ' '.join(filtered_df['title'].tolist() + filtered_df['body'].tolist())
+        base_df = filtered_df if dynamic_wordcloud else df
+        all_text = ' '.join(base_df['title'].tolist() + base_df['body'].tolist())
         tokens = re.findall(r'\b\w{3,}\b', all_text.lower())
         common_stopwords = set(pd.read_csv("https://raw.githubusercontent.com/stopwords-iso/stopwords-id/master/stopwords-id.txt", header=None)[0].tolist())
         tokens = [word for word in tokens if word not in common_stopwords]
         word_freq = Counter(tokens).most_common(500)
         wc_df = pd.DataFrame(word_freq, columns=['Kata', 'Jumlah'])
-        st.dataframe(wc_df)
-
+        st.dataframe(wc_df, use_container_width=True)
 else:
     st.info("Silakan upload atau unduh ZIP untuk melihat ringkasan topik.")
