@@ -1,5 +1,5 @@
 # 📦 Install dependencies
-!pip install pandas ipywidgets openpyxl > /dev/null
+#!pip install pandas ipywidgets openpyxl > /dev/null
 
 import pandas as pd
 import zipfile
