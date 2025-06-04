@@ -76,37 +76,30 @@ if st.session_state['last_df'] is not None:
     all_labels = sorted(set([label.strip() for sub in df['label'] for label in sub.split(',') if label.strip()]))
     sentiments_all = sorted(df['sentiment'].str.lower().unique())
 
-    st.sidebar.markdown("### 📊 Statistik")
-    sentiments = df['sentiment'].str.lower()
-    st.sidebar.markdown(f"<div style='font-size:18px; font-weight:bold;'>📰 Total Artikel: {df.shape[0]}</div>", unsafe_allow_html=True)
-    st.sidebar.markdown(f"""
-        <div style='margin-top:4px;'>
-            <span style='color:green;'>🟢 {(sentiments == 'positive').sum()}</span> |
-            <span style='color:gray;'>⚪ {(sentiments == 'neutral').sum()}</span> |
-            <span style='color:red;'>🔴 {(sentiments == 'negative').sum()}</span>
-        </div>
-    """, unsafe_allow_html=True)
-
-    st.sidebar.markdown("---")
-    st.sidebar.markdown("### 🔍 Filter")
-
+    # FILTER INPUT
     if st.sidebar.button("🔄 Clear Filter"):
         st.session_state['sentiment_filter'] = "All"
         st.session_state['label_filter'] = "All"
         st.session_state['keyword_input'] = ""
         st.session_state['highlight_words'] = ""
 
-    sentiment_filter = st.sidebar.selectbox("Sentimen", options=["All"] + sentiments_all, index=["All"] + sentiments_all.index(st.session_state['sentiment_filter']) if st.session_state['sentiment_filter'] in sentiments_all else 0)
+    sentiment_filter = st.sidebar.selectbox("Sentimen", options=["All"] + sentiments_all, index=(["All"] + sentiments_all).index(st.session_state['sentiment_filter']))
     st.session_state['sentiment_filter'] = sentiment_filter
-    label_filter = st.sidebar.selectbox("Label", options=["All"] + all_labels, index=["All"] + all_labels.index(st.session_state['label_filter']) if st.session_state['label_filter'] in all_labels else 0)
+
+    label_filter = st.sidebar.selectbox("Label", options=["All"] + all_labels, index=(["All"] + all_labels).index(st.session_state['label_filter']))
     st.session_state['label_filter'] = label_filter
+
     keyword_input = st.sidebar.text_input("Kata kunci (\"frasa\" -exclude)", value=st.session_state['keyword_input'])
     st.session_state['keyword_input'] = keyword_input
-    st.session_state['dynamic_wordcloud'] = st.sidebar.checkbox("Word Cloud Dinamis", value=True)
+
     highlight_words = st.sidebar.text_input("Highlight Kata", value=st.session_state['highlight_words'])
     st.session_state['highlight_words'] = highlight_words
 
-    # === Filter Proses ===
+    st.session_state['show_wordcloud'] = st.sidebar.checkbox("Tampilkan WordCloud", value=st.session_state['show_wordcloud'])
+    if st.session_state['show_wordcloud']:
+        st.session_state['dynamic_wordcloud'] = st.sidebar.checkbox("Word Cloud Dinamis", value=st.session_state['dynamic_wordcloud'])
+
+    # === Filtering Proses ===
     filtered_df = df.copy()
     if sentiment_filter != 'All':
         filtered_df = filtered_df[filtered_df['sentiment'].str.lower() == sentiment_filter]
@@ -165,6 +158,18 @@ if st.session_state['last_df'] is not None:
             if not result.empty:
                 return result.iloc[0]
         return '-'
+
+    # STATISTIK TERKAIT FILTER
+    st.sidebar.markdown("### 📊 Statistik")
+    sentiments = filtered_df['sentiment'].str.lower()
+    st.sidebar.markdown(f"<div style='font-size:18px; font-weight:bold;'>📰 Total Artikel: {filtered_df.shape[0]}</div>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"""
+        <div style='margin-top:4px;'>
+            <span style='color:green;'>🟢 {(sentiments == 'positive').sum()}</span> |
+            <span style='color:gray;'>⚪ {(sentiments == 'neutral').sum()}</span> |
+            <span style='color:red;'>🔴 {(sentiments == 'negative').sum()}</span>
+        </div>
+    """, unsafe_allow_html=True)
 
     grouped = filtered_df.groupby('title').agg(
         Article=('title', 'count'),
