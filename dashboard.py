@@ -4,6 +4,8 @@ import zipfile
 import urllib.request
 import os
 import io
+from collections import Counter
+import re
 
 st.set_page_config(layout="wide")
 st.title("📰 Topic Summary Dashboard (ZIP Berisi CSV)")
@@ -137,20 +139,34 @@ if st.session_state['last_df'] is not None:
 
     grouped['Sentiment'] = grouped['Sentiment'].apply(color_sentiment)
     grouped['Link'] = grouped['Link'].apply(lambda x: f'<a href="{x}" target="_blank">Lihat</a>' if x != '-' else '-')
-    grouped['title'] = grouped['title'].apply(lambda x: f'<div style="max-width:400px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{x}">{x}</div>')
+    grouped['title'] = grouped['title'].apply(lambda x: f'<div title="{x}" style="max-width:400px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">{x}</div>')
 
-    st.markdown("### 📊 Ringkasan Topik")
-    st.write("(Klik judul/link untuk melihat detail)")
-    st.markdown("""
-    <style>
-    td div {
-        max-width: 500px;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-    st.write(grouped.to_html(escape=False, index=False), unsafe_allow_html=True)
+    col1, col2 = st.columns([3, 1])
+
+    with col1:
+        st.markdown("### 📊 Ringkasan Topik")
+        st.write("(Klik judul/link untuk melihat detail)")
+        st.markdown("""
+        <style>
+        td div {
+            max-width: 500px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        st.write(grouped.to_html(escape=False, index=False), unsafe_allow_html=True)
+
+    with col2:
+        st.markdown("### ☁️ Word Cloud (CSV)")
+        all_text = ' '.join(filtered_df['title'].tolist() + filtered_df['body'].tolist())
+        tokens = re.findall(r'\b\w{3,}\b', all_text.lower())
+        common_stopwords = set(pd.read_csv("https://raw.githubusercontent.com/stopwords-iso/stopwords-id/master/stopwords-id.txt", header=None)[0].tolist())
+        tokens = [word for word in tokens if word not in common_stopwords]
+        word_freq = Counter(tokens).most_common(100)
+        wc_df = pd.DataFrame(word_freq, columns=['Kata', 'Jumlah'])
+        st.dataframe(wc_df)
+
 else:
     st.info("Silakan upload atau unduh ZIP untuk melihat ringkasan topik.")
