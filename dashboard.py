@@ -8,9 +8,7 @@ import io
 st.set_page_config(layout="wide")
 st.title("📰 Topic Summary Dashboard (ZIP Berisi CSV)")
 
-# Fungsi ekstrak CSV dari ZIP
-@st.cache_data
-
+@st.cache_data(show_spinner=False)
 def extract_csv_from_zip(zip_file):
     with zipfile.ZipFile(zip_file, 'r') as zip_ref:
         csv_files = [f for f in zip_ref.namelist() if f.endswith('.csv')]
@@ -47,104 +45,112 @@ else:
             except Exception as e:
                 st.error(f"❌ Gagal mengunduh: {e}")
 
+# STATE KONTROL
+if 'last_df' not in st.session_state:
+    st.session_state['last_df'] = None
+
 if zip_data:
     with st.spinner("Membaca dan memproses data..."):
         df = extract_csv_from_zip(zip_data)
         if not df.empty:
-            for col in ['title', 'body', 'url', 'sentiment']:
-                df[col] = df[col].astype(str).str.strip("'")
+            st.session_state['last_df'] = df.copy()
 
-            df['label'] = df['label'].fillna('')
-            all_labels = sorted(set([label.strip() for sub in df['label'] for label in sub.split(',') if label.strip()]))
-            sentiments_all = sorted(df['sentiment'].str.lower().unique())
+if st.session_state['last_df'] is not None:
+    df = st.session_state['last_df']
+    for col in ['title', 'body', 'url', 'sentiment']:
+        df[col] = df[col].astype(str).str.strip("'")
 
-            # Filter
-            st.sidebar.header("🔍 Filter")
-            sentiment_filter = st.sidebar.selectbox("Sentimen", options=["All"] + sentiments_all)
-            keyword_input = st.sidebar.text_input("Kata kunci (\"frasa\" -exclude)")
-            label_filter = st.sidebar.selectbox("Label", options=["All"] + all_labels)
+    df['label'] = df['label'].fillna('')
+    all_labels = sorted(set([label.strip() for sub in df['label'] for label in sub.split(',') if label.strip()]))
+    sentiments_all = sorted(df['sentiment'].str.lower().unique())
 
-            filtered_df = df.copy()
+    # Filter
+    st.sidebar.header("🔍 Filter")
+    sentiment_filter = st.sidebar.selectbox("Sentimen", options=["All"] + sentiments_all)
+    keyword_input = st.sidebar.text_input("Kata kunci (\"frasa\" -exclude)")
+    label_filter = st.sidebar.selectbox("Label", options=["All"] + all_labels)
 
-            # Filter sentimen
-            if sentiment_filter != 'All':
-                filtered_df = filtered_df[filtered_df['sentiment'].str.lower() == sentiment_filter]
+    filtered_df = df.copy()
 
-            # Filter label
-            if label_filter != 'All':
-                filtered_df = filtered_df[filtered_df['label'].apply(lambda x: label_filter in [s.strip() for s in x.split(',')])]
+    # Filter sentimen
+    if sentiment_filter != 'All':
+        filtered_df = filtered_df[filtered_df['sentiment'].str.lower() == sentiment_filter]
 
-            # Filter kata kunci
-            def match_keywords(text):
-                text = text.lower()
-                include_words = []
-                exclude_words = []
-                phrases = []
-                tokens = keyword_input.split(' ')
-                i = 0
-                while i < len(tokens):
-                    token = tokens[i]
-                    if token.startswith('"'):
-                        phrase = token
-                        while not phrase.endswith('"') and i+1 < len(tokens):
-                            i += 1
-                            phrase += ' ' + tokens[i]
-                        phrases.append(phrase.strip('"'))
-                    elif token.startswith('-'):
-                        exclude_words.append(token[1:])
-                    else:
-                        include_words.append(token)
+    # Filter label
+    if label_filter != 'All':
+        filtered_df = filtered_df[filtered_df['label'].apply(lambda x: label_filter in [s.strip() for s in x.split(',')])]
+
+    # Filter kata kunci
+    def match_keywords(text):
+        text = text.lower()
+        include_words = []
+        exclude_words = []
+        phrases = []
+        tokens = keyword_input.split(' ')
+        i = 0
+        while i < len(tokens):
+            token = tokens[i]
+            if token.startswith('"'):
+                phrase = token
+                while not phrase.endswith('"') and i+1 < len(tokens):
                     i += 1
-                for word in exclude_words:
-                    if word in text:
-                        return False
-                for word in include_words:
-                    if word and word not in text:
-                        return False
-                for phrase in phrases:
-                    if phrase and phrase not in text:
-                        return False
-                return True
+                    phrase += ' ' + tokens[i]
+                phrases.append(phrase.strip('"'))
+            elif token.startswith('-'):
+                exclude_words.append(token[1:])
+            else:
+                include_words.append(token)
+            i += 1
+        for word in exclude_words:
+            if word in text:
+                return False
+        for word in include_words:
+            if word and word not in text:
+                return False
+        for phrase in phrases:
+            if phrase and phrase not in text:
+                return False
+        return True
 
-            if keyword_input:
-                mask = filtered_df['title'].apply(match_keywords) | filtered_df['body'].apply(match_keywords)
-                filtered_df = filtered_df[mask]
+    if keyword_input:
+        mask = filtered_df['title'].apply(match_keywords) | filtered_df['body'].apply(match_keywords)
+        filtered_df = filtered_df[mask]
 
-            grouped = filtered_df.groupby('title').agg(
-                Article=('title', 'count'),
-                Sentiment=('sentiment', lambda x: x.mode().iloc[0] if not x.mode().empty else '-'),
-                Link=('url', lambda x: x.dropna().iloc[0] if not x.dropna().empty else '-')
-            ).reset_index().sort_values(by='Article', ascending=False)
+    grouped = filtered_df.groupby('title').agg(
+        Article=('title', 'count'),
+        Sentiment=('sentiment', lambda x: x.mode().iloc[0] if not x.mode().empty else '-'),
+        Link=('url', lambda x: x.dropna().iloc[0] if not x.dropna().empty else '-')
+    ).reset_index().sort_values(by='Article', ascending=False)
 
-            sentiments = filtered_df['sentiment'].str.lower()
-            st.markdown(f"""
-            **Total Artikel:** {filtered_df.shape[0]} | 
-            **Positif:** {sum(sentiments == 'positive')} | 
-            **Negatif:** {sum(sentiments == 'negative')} | 
-            **Netral:** {sum(sentiments == 'neutral')}
-            """)
+    sentiments = filtered_df['sentiment'].str.lower()
+    st.markdown(f"""
+    **Total Artikel:** {filtered_df.shape[0]} | 
+    **Positif:** {sum(sentiments == 'positive')} | 
+    **Negatif:** {sum(sentiments == 'negative')} | 
+    **Netral:** {sum(sentiments == 'neutral')}
+    """)
 
-            def color_sentiment(s):
-                if s.lower() == 'positive': return f'<span style="color:green;font-weight:bold">{s}</span>'
-                if s.lower() == 'negative': return f'<span style="color:red;font-weight:bold">{s}</span>'
-                return f'<span style="color:gray;font-weight:bold">{s}</span>'
+    def color_sentiment(s):
+        if s.lower() == 'positive': return f'<span style="color:green;font-weight:bold">{s}</span>'
+        if s.lower() == 'negative': return f'<span style="color:red;font-weight:bold">{s}</span>'
+        return f'<span style="color:gray;font-weight:bold">{s}</span>'
 
-            grouped['Sentiment'] = grouped['Sentiment'].apply(color_sentiment)
-            grouped['Link'] = grouped['Link'].apply(lambda x: f'<a href="{x}" target="_blank">Lihat</a>' if x != '-' else '-')
-            grouped['title'] = grouped['title'].apply(lambda x: f'<div title="{x}">{x}</div>')
+    grouped['Sentiment'] = grouped['Sentiment'].apply(color_sentiment)
+    grouped['Link'] = grouped['Link'].apply(lambda x: f'<a href="{x}" target="_blank">Lihat</a>' if x != '-' else '-')
+    grouped['title'] = grouped['title'].apply(lambda x: f'<div style="max-width:400px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;" title="{x}">{x}</div>')
 
-            st.markdown("### 📊 Ringkasan Topik")
-            st.write("(Klik judul/link untuk melihat detail)")
-            st.write("""
-            <style>
-            td div {
-                max-width: 300px;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-            }
-            </style>
-            """, unsafe_allow_html=True)
-            st.write(grouped.to_html(escape=False, index=False), unsafe_allow_html=True)
-        else:
-            st.warning("⚠️ Data tidak ditemukan dalam ZIP.")
+    st.markdown("### 📊 Ringkasan Topik")
+    st.write("(Klik judul/link untuk melihat detail)")
+    st.markdown("""
+    <style>
+    td div {
+        max-width: 500px;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    st.write(grouped.to_html(escape=False, index=False), unsafe_allow_html=True)
+else:
+    st.info("Silakan upload atau unduh ZIP untuk melihat ringkasan topik.")
