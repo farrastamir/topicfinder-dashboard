@@ -69,6 +69,30 @@ if st.session_state['last_df'] is not None:
     all_labels = sorted(set([label.strip() for sub in df['label'] for label in sub.split(',') if label.strip()]))
     sentiments_all = sorted(df['sentiment'].str.lower().unique())
 
+    st.markdown("""
+    <style>
+    .stat-box {display: flex; gap: 40px; margin-bottom: 1em;}
+    .stat-item {background: #f1f1f1; padding: 10px 20px; border-radius: 10px;}
+    .stat-item h2 {margin: 0 0 5px 0; font-size: 1.5em;}
+    .stat-item p {margin: 0; font-size: 1em;}
+    </style>
+    """, unsafe_allow_html=True)
+
+    sentiments = df['sentiment'].str.lower()
+    total_artikel = df.shape[0]
+    total_positif = sum(sentiments == 'positive')
+    total_negatif = sum(sentiments == 'negative')
+    total_netral = sum(sentiments == 'neutral')
+
+    st.markdown(f"""
+    <div class="stat-box">
+        <div class="stat-item"><h2>Total Artikel</h2><p>{total_artikel}</p></div>
+        <div class="stat-item"><h2 style='color:green;'>🟢 Positif</h2><p>{total_positif}</p></div>
+        <div class="stat-item"><h2 style='color:gray;'>⚪ Netral</h2><p>{total_netral}</p></div>
+        <div class="stat-item"><h2 style='color:red;'>🔴 Negatif</h2><p>{total_negatif}</p></div>
+    </div>
+    """, unsafe_allow_html=True)
+
     with st.sidebar:
         st.markdown("### 🔍 Filter")
         sentiment_filter = st.selectbox("Sentimen", options=["All"] + sentiments_all)
@@ -121,20 +145,6 @@ if st.session_state['last_df'] is not None:
                filtered_df['body'].apply(lambda x: match_advanced(x, includes, phrases, excludes))
         filtered_df = filtered_df[mask]
 
-    sentiments = filtered_df['sentiment'].str.lower()
-    total_artikel = filtered_df.shape[0]
-    total_positif = sum(sentiments == 'positive')
-    total_negatif = sum(sentiments == 'negative')
-    total_netral = sum(sentiments == 'neutral')
-
-    st.sidebar.markdown(f"""
-    <hr>
-    <h4>📊 <b>Total Artikel</b>: {total_artikel}</h4>
-    <p><span style='color:green;'>🟢 {total_positif}</span> &nbsp;&nbsp;
-    <span style='color:gray;'>⚪ {total_netral}</span> &nbsp;&nbsp;
-    <span style='color:red;'>🔴 {total_negatif}</span></p>
-    """, unsafe_allow_html=True)
-
     highlight_tokens = re.findall(r'\"[^\"]+\"|\S+', highlight_words)
     highlight_words_set = set([h.strip('"').lower() for h in highlight_tokens])
 
@@ -146,13 +156,20 @@ if st.session_state['last_df'] is not None:
     grouped = filtered_df.groupby('title').agg(
         Article=('title', 'count'),
         Sentiment=('sentiment', lambda x: x.mode().iloc[0] if not x.mode().empty else '-'),
-        Tier=('tier', lambda x: x.mode().iloc[0] if not x.mode().empty else '-'),
-        Body=('body', lambda x: x.dropna().iloc[0] if not x.dropna().empty else '-'),
         Link=('url', lambda x: x.dropna().iloc[0] if not x.dropna().empty else '-')
     ).reset_index().sort_values(by='Article', ascending=False)
 
+    grouped['Link'] = grouped['Link'].apply(lambda x: f'<a href="{x}" target="_blank">Link</a>' if x != '-' else '-')
+
     st.markdown("### 📊 Ringkasan Topik")
-    st.dataframe(grouped[['title', 'Article', 'Sentiment', 'Tier', 'Link']], use_container_width=True)
+    st.markdown("""<style>.block-container {padding-bottom: 0rem !important;}</style>""", unsafe_allow_html=True)
+    st.write(" ")
+    st.write(" ")
+    st.markdown("""
+    <div style='overflow-x:auto;'>
+    """, unsafe_allow_html=True)
+    st.write(grouped[['title', 'Article', 'Sentiment', 'Link']].to_html(escape=False, index=False), unsafe_allow_html=True)
+    st.markdown("</div>", unsafe_allow_html=True)
 
     if st.session_state['show_wordcloud']:
         st.markdown("### ☁️ Word Cloud (Top 500 Kata)")
