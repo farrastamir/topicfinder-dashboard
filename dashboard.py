@@ -32,6 +32,12 @@ if 'show_wordcloud' not in st.session_state:
 if 'dynamic_wordcloud' not in st.session_state:
     st.session_state['dynamic_wordcloud'] = True
 
+if 'reset_filter' not in st.session_state:
+    st.session_state['sentiment_filter'] = "All"
+    st.session_state['label_filter'] = "All"
+    st.session_state['keyword_input'] = ""
+    st.session_state['highlight_words'] = ""
+
 st.markdown("### 📁 Pilih sumber data")
 input_type = st.radio("Input ZIP via:", ["Upload File", "Link Download"])
 
@@ -42,7 +48,7 @@ if input_type == "Upload File":
         zip_data = uploaded
 else:
     zip_url = st.text_input("Masukkan URL file ZIP")
-    if st.button("Download ZIP"):
+    if st.button("Proceed"):
         if zip_url:
             try:
                 tmp_path = "/tmp/downloaded.zip"
@@ -71,35 +77,35 @@ if st.session_state['last_df'] is not None:
     all_labels = sorted(set([label.strip() for sub in df['label'] for label in sub.split(',') if label.strip()]))
     sentiments_all = sorted(df['sentiment'].str.lower().unique())
 
-    filtered_df = df.copy()
-    sentiment_filter = st.sidebar.selectbox("Sentimen", options=["All"] + sentiments_all)
-    if sentiment_filter != 'All':
-        filtered_df = filtered_df[filtered_df['sentiment'].str.lower() == sentiment_filter]
-
-    keyword_input = st.sidebar.text_input("Kata kunci (\"frasa\" -exclude)")
-    label_filter = st.sidebar.selectbox("Label", options=["All"] + all_labels)
-    if label_filter != 'All':
-        filtered_df = filtered_df[filtered_df['label'].apply(lambda x: label_filter in [s.strip() for s in x.split(',')])]
-
-    st.session_state['show_wordcloud'] = True
-    st.session_state['dynamic_wordcloud'] = st.sidebar.checkbox("Word Cloud Dinamis", value=True)
-    highlight_words = st.sidebar.text_input("Highlight Kata")
-
-    sentiments = filtered_df['sentiment'].str.lower()
-    total_artikel = filtered_df.shape[0]
-    total_positif = (sentiments == 'positive').sum()
-    total_negatif = (sentiments == 'negative').sum()
-    total_netral = (sentiments == 'neutral').sum()
+    st.sidebar.markdown("### 📊 Statistik")
+    sentiments = df['sentiment'].str.lower()
+    st.sidebar.markdown(f"<div style='font-size:18px; font-weight:bold;'>📰 Total Artikel: {df.shape[0]}</div>", unsafe_allow_html=True)
+    st.sidebar.markdown(f"""
+        <div style='margin-top:4px;'>
+            <span style='color:green;'>🟢 {(sentiments == 'positive').sum()}</span> |
+            <span style='color:gray;'>⚪ {(sentiments == 'neutral').sum()}</span> |
+            <span style='color:red;'>🔴 {(sentiments == 'negative').sum()}</span>
+        </div>
+    """, unsafe_allow_html=True)
 
     st.sidebar.markdown("---")
-    st.sidebar.markdown(f"""
-    <div style='font-size:18px; font-weight:bold;'>📰 Total Artikel: {total_artikel}</div>
-    <div style='margin-top:4px;'>
-        <span style='color:green;'>🟢 {total_positif}</span> |
-        <span style='color:gray;'>⚪ {total_netral}</span> |
-        <span style='color:red;'>🔴 {total_negatif}</span>
-    </div>
-    """, unsafe_allow_html=True)
+    st.sidebar.markdown("### 🔍 Filter")
+
+    if st.sidebar.button("🔄 Clear Filter"):
+        st.session_state['sentiment_filter'] = "All"
+        st.session_state['label_filter'] = "All"
+        st.session_state['keyword_input'] = ""
+        st.session_state['highlight_words'] = ""
+
+    sentiment_filter = st.sidebar.selectbox("Sentimen", options=["All"] + sentiments_all, index=["All"] + sentiments_all.index(st.session_state['sentiment_filter']) if st.session_state['sentiment_filter'] in sentiments_all else 0)
+    st.session_state['sentiment_filter'] = sentiment_filter
+    label_filter = st.sidebar.selectbox("Label", options=["All"] + all_labels, index=["All"] + all_labels.index(st.session_state['label_filter']) if st.session_state['label_filter'] in all_labels else 0)
+    st.session_state['label_filter'] = label_filter
+    keyword_input = st.sidebar.text_input("Kata kunci (\"frasa\" -exclude)", value=st.session_state['keyword_input'])
+    st.session_state['keyword_input'] = keyword_input
+    st.session_state['dynamic_wordcloud'] = st.sidebar.checkbox("Word Cloud Dinamis", value=True)
+    highlight_words = st.sidebar.text_input("Highlight Kata", value=st.session_state['highlight_words'])
+    st.session_state['highlight_words'] = highlight_words
 
     def parse_advanced_keywords(query):
         query = query.strip()
