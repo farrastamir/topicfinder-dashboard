@@ -31,7 +31,6 @@ if 'show_wordcloud' not in st.session_state:
     st.session_state['show_wordcloud'] = False
 if 'dynamic_wordcloud' not in st.session_state:
     st.session_state['dynamic_wordcloud'] = True
-
 if 'reset_filter' not in st.session_state:
     st.session_state['sentiment_filter'] = "All"
     st.session_state['label_filter'] = "All"
@@ -107,6 +106,13 @@ if st.session_state['last_df'] is not None:
     highlight_words = st.sidebar.text_input("Highlight Kata", value=st.session_state['highlight_words'])
     st.session_state['highlight_words'] = highlight_words
 
+    # === Filter Proses ===
+    filtered_df = df.copy()
+    if sentiment_filter != 'All':
+        filtered_df = filtered_df[filtered_df['sentiment'].str.lower() == sentiment_filter]
+    if label_filter != 'All':
+        filtered_df = filtered_df[filtered_df['label'].apply(lambda x: label_filter in [s.strip() for s in x.split(',')])]
+
     def parse_advanced_keywords(query):
         query = query.strip()
         if not query:
@@ -139,8 +145,8 @@ if st.session_state['last_df'] is not None:
                 return False
         return True
 
+    includes, phrases, excludes = parse_advanced_keywords(keyword_input)
     if keyword_input:
-        includes, phrases, excludes = parse_advanced_keywords(keyword_input)
         mask = filtered_df['title'].apply(lambda x: match_advanced(x, includes, phrases, excludes)) | \
                filtered_df['body'].apply(lambda x: match_advanced(x, includes, phrases, excludes))
         filtered_df = filtered_df[mask]
